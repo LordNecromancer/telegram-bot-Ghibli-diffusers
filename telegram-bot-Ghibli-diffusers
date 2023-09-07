@@ -1,0 +1,119 @@
+!pip install diffusers transformers ftfy accelerate
+import torch
+import requests
+from PIL import Image
+from io import BytesIO
+from diffusers import StableDiffusionImg2ImgPipeline
+from google.colab import drive
+drive.mount('/content/drive')
+!mkdir -p "/content/drive/My Drive/ghibli_telegram_bot"
+#img = Image.open("/content/drive/My Drive/ghibli_telegram_bot/xyz.jpeg")
+prompt=""
+img=None
+url=""
+P,U=range(2)
+device = "cuda"
+pipe = StableDiffusionImg2ImgPipeline.from_pretrained("nitrosocke/Ghibli-Diffusion", torch_dtype=torch.float16, use_safetensors=True).to(device)
+def generate_image_from_prompt(prompt,url):
+
+
+    #url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
+    #url="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Red_Kitten_01.jpg/800px-Red_Kitten_01.jpg"
+    headers = {
+    "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36"
+}
+    response = requests.get(url,headers=headers)
+    init_image = Image.open(BytesIO(response.content)).convert("RGB")
+    init_image.thumbnail((768, 768))
+    init_image
+    #init_image=img
+
+    prompt = prompt
+    generator = torch.Generator(device=device).manual_seed(1024)
+    image = pipe(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5, generator=generator).images[0]
+    image.save("/content/drive/My Drive/ghibli_telegram_bot/xyz.jpeg")
+    image
+    return "/content/drive/My Drive/ghibli_telegram_bot/xyz.jpeg"
+
+
+
+
+!pip install nest_asyncio
+import nest_asyncio
+nest_asyncio.apply()
+
+!pip install python-telegram-bot
+from telegram import Update
+from io import BytesIO
+import cv2
+import numpy as np
+import telegram
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes,filters, MessageHandler,ConversationHandler
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(f'Hello {update.effective_user.first_name}')
+    return P
+
+
+app = ApplicationBuilder().token("6582444506:AAHiqoV1eVf3Xx_w1bGRiNMdlRie2VpKrJc").build()
+bot = telegram.Bot(token="6582444506:AAHiqoV1eVf3Xx_w1bGRiNMdlRie2VpKrJc")
+
+
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.")
+
+async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    url = "http://mmdaneshpajouh.ir/wp-content/uploads/2023/08/image-767x1024.jpg"
+    global prompt
+    # await bot.send_photo(url)
+    prompt=  update.message.text
+    print(update.message)
+    return U
+
+async def url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    #url = "http://mmdaneshpajouh.ir/wp-content/uploads/2023/08/image-767x1024.jpg"
+    global url
+    # await bot.send_photo(url)
+    url=update.message.text
+    print(update.message)
+    await bot.send_photo(chat_id=update.effective_chat.id,photo=open(generate_image_from_prompt(prompt,url),"rb"))
+    return ContextTypes.DEFAULT_TYPE
+
+
+async def image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global img
+    url = "http://mmdaneshpajouh.ir/wp-content/uploads/2023/08/image-767x1024.jpg"
+    # await bot.send_photo(url)
+    img= update.message.photo[-1].get_file()
+    img =   cv2.imdecode(np.fromstring(BytesIO(img.download_as_bytearray()).getvalue(), np.uint8), 1)
+    print(img,type(img))
+    await bot.send_photo(chat_id=update.effective_chat.id,photo=open(generate_image_from_prompt(prompt,img),"rb"))
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     chat_id = update.message.chat_id
+     bot.send_message(chat_id , text = "process canceled !")
+     return ConversationHandler.END
+
+CH = ConversationHandler (entry_points = [CommandHandler("start", start)],
+     states = {P : [MessageHandler(filters.TEXT , prompt)],
+     U : [MessageHandler(filters.TEXT , url)]
+     },
+     fallbacks = [MessageHandler(filters.Regex('cancel'), cancel)],
+     )
+
+# -------- add handler ---------
+app.add_handler(CH)
+
+app.add_handler(CommandHandler("start", start))
+#prompt_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), prompt)
+#app.add_handler(prompt_handler)
+
+image_handler = MessageHandler(filters.PHOTO & (~filters.COMMAND), image)
+app.add_handler(image_handler)
+
+unknown_handler = MessageHandler(filters.COMMAND, unknown)
+app.add_handler(unknown_handler)
+
+
+app.run_polling()
